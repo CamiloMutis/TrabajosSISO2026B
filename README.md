@@ -1,2 +1,2 @@
 # TrabajosSISO2026B
-lul
+/Trabajos Camilo Steban Mutis Arango Sistemas Operativos 2026/
