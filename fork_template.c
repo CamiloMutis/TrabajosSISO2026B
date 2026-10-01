@@ -64,3 +64,10 @@ int main() {
 
     return EXIT_SUCCESS;
 }
+
+//crear 10 sub procesos 
+// ver comportamiento de los procesos en la consola de linux y jerarquia de proceso
+// ps -ef
+//ver arbol de procesos"
+//pstree
+
