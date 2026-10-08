@@ -8,18 +8,14 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 
-#define FIFO_SUMA "fifo_suma"
-#define FIFO_MUL "fifo_mul"
+#define FIFO_FILE "canal_fifo"
 #define BUFFER_SIZE 128
-#define MAX 10
 
 struct Datos {
-    int a[MAX];
-    int b[MAX];
-    int resultado_sum[MAX];
-    int resultado_mul[MAX];
-    int n_sum;
-    int n_mul;
+    int a;
+    int b;
+    int resultado_sum;
+    int resultado_mul;
 };
 
 int main(void) {
@@ -38,102 +34,47 @@ int main(void) {
         exit(1);
     }
 
-    shmatch->n_sum = 0;
-    shmatch->n_mul = 0;
-
-    mkfifo(FIFO_SUMA, 0666);
-    mkfifo(FIFO_MUL, 0666);
+    mkfifo(FIFO_FILE, 0666);
 
     printf("Padre: PID %d\n", getpid());
     fflush(stdout);
 
-    // Productor
+    // Hijo 1: envia los datos por el FIFO
     if (fork() == 0) {
-        int fd_suma = open(FIFO_SUMA, O_WRONLY);
-        int fd_mul = open(FIFO_MUL, O_WRONLY);
-        if (fd_suma < 0 || fd_mul < 0) {
+        int fd = open(FIFO_FILE, O_WRONLY);
+        if (fd < 0) {
             perror("Error abriendo FIFO para escritura");
             exit(1);
         }
 
-        for (int i = 1; i <= 5; i++) {
-            char buffer[BUFFER_SIZE];
-            memset(buffer, 0, BUFFER_SIZE);
-            snprintf(buffer, BUFFER_SIZE, "%d %d", i, i + 2);
-            write(fd_suma, buffer, BUFFER_SIZE);
-            write(fd_mul, buffer, BUFFER_SIZE);
-            printf("Productor: enviado %s\n", buffer);
-            fflush(stdout);
-            sleep(1);
-        }
-
-        close(fd_suma);
-        close(fd_mul);
-        shmdt(shmatch);
-        exit(0);
-    }
-
-    // Hijo 1: suma
-    if (fork() == 0) {
-        int fd = open(FIFO_SUMA, O_RDONLY);
-        if (fd < 0) {
-            perror("Error abriendo FIFO de suma");
-            exit(1);
-        }
-
-        int *resultados = malloc(MAX * sizeof(int));
-        int cantidad = 0;
         char buffer[BUFFER_SIZE];
-        int a, b;
+        snprintf(buffer, BUFFER_SIZE, "%d %d", 4, 6);
+        write(fd, buffer, strlen(buffer) + 1);
+        printf("Hijo 1: PID %d, enviado por FIFO: %s\n", getpid(), buffer);
 
-        while (read(fd, buffer, BUFFER_SIZE) > 0 && cantidad < MAX) {
-            sscanf(buffer, "%d %d", &a, &b);
-            int resultado_sum = a + b;
-            resultados[cantidad] = resultado_sum;
-            cantidad++;
-
-            shmatch->resultado_sum[shmatch->n_sum] = resultado_sum;
-            shmatch->n_sum++;
-
-            printf("Hijo 1 Suma: PID %d, %d + %d = %d\n", getpid(), a, b, resultado_sum);
-            fflush(stdout);
-        }
-
-        free(resultados);
         close(fd);
         shmdt(shmatch);
         exit(0);
     }
 
-    // Hijo 2: multiplicacion
+    // Hijo 2: lee del FIFO, calcula y guarda en memoria compartida
     if (fork() == 0) {
-        int fd = open(FIFO_MUL, O_RDONLY);
+        int fd = open(FIFO_FILE, O_RDONLY);
         if (fd < 0) {
-            perror("Error abriendo FIFO de multiplicacion");
+            perror("Error abriendo FIFO para lectura");
             exit(1);
         }
 
-        int *resultados = malloc(MAX * sizeof(int));
-        int cantidad = 0;
         char buffer[BUFFER_SIZE];
-        int a, b;
+        read(fd, buffer, BUFFER_SIZE);
+        sscanf(buffer, "%d %d", &shmatch->a, &shmatch->b);
 
-        while (read(fd, buffer, BUFFER_SIZE) > 0 && cantidad < MAX) {
-            sscanf(buffer, "%d %d", &a, &b);
-            int resultado_mul = a * b;
-            resultados[cantidad] = resultado_mul;
-            cantidad++;
+        shmatch->resultado_sum = shmatch->a + shmatch->b;
+        shmatch->resultado_mul = shmatch->a * shmatch->b;
 
-            shmatch->a[shmatch->n_mul] = a;
-            shmatch->b[shmatch->n_mul] = b;
-            shmatch->resultado_mul[shmatch->n_mul] = resultado_mul;
-            shmatch->n_mul++;
+        printf("Hijo 2: PID %d, recibido %d y %d, guardado en memoria compartida\n",
+               getpid(), shmatch->a, shmatch->b);
 
-            printf("Hijo 2 Multiplicacion: PID %d, %d * %d = %d\n", getpid(), a, b, resultado_mul);
-            fflush(stdout);
-        }
-
-        free(resultados);
         close(fd);
         shmdt(shmatch);
         exit(0);
@@ -141,23 +82,16 @@ int main(void) {
 
     wait(NULL);
     wait(NULL);
-    wait(NULL);
 
-    printf("\nPadre: resultados en memoria compartida\n");
-    for (int i = 0; i < shmatch->n_mul; i++) {
-        printf("(%d, %d) suma = %d, multiplicacion = %d\n",
-               shmatch->a[i], shmatch->b[i],
-               shmatch->resultado_sum[i], shmatch->resultado_mul[i]);
-    }
+    printf("Padre: %d + %d = %d\n", shmatch->a, shmatch->b, shmatch->resultado_sum);
+    printf("Padre: %d * %d = %d\n", shmatch->a, shmatch->b, shmatch->resultado_mul);
 
     shmdt(shmatch);
     if (shmctl(shm_id, IPC_RMID, NULL) < 0) {
         perror("Error eliminando memoria compartida");
         exit(1);
     }
-
-    unlink(FIFO_SUMA);
-    unlink(FIFO_MUL);
+    unlink(FIFO_FILE);
 
     printf("Padre: mis hijos terminaron\n");
     return 0;
